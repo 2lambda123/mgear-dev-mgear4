@@ -7,8 +7,6 @@ from mgear.vendor.Qt import QtGui, QtWidgets
 from mgear.core import pyqt, widgets
 from mgear.shifter.rig_builder import builder
 
-builder.setup_pyblish()
-
 
 class RigBuilderUI(MayaQWidgetDockableMixin, QtWidgets.QDialog, pyqt.SettingsMixin):
     """
@@ -27,6 +25,7 @@ class RigBuilderUI(MayaQWidgetDockableMixin, QtWidgets.QDialog, pyqt.SettingsMix
         self.create_connections()
 
     def create_layout(self):
+        """Creates the main layout widgets of the tool."""
         self.layout = QtWidgets.QVBoxLayout()
         self.setLayout(self.layout)
 
@@ -45,19 +44,24 @@ class RigBuilderUI(MayaQWidgetDockableMixin, QtWidgets.QDialog, pyqt.SettingsMix
         run_validators_layout = QtWidgets.QHBoxLayout()
         self.layout.addLayout(run_validators_layout)
 
-        run_label = QtWidgets.QLabel("Run Validators")
-        self.run_validators_checkbox = QtWidgets.QCheckBox()
+        self.run_validators_checkbox = QtWidgets.QCheckBox("Run Pyblish Validators")
         self.run_validators_checkbox.setChecked(True)
-        run_validators_layout.addWidget(run_label)
         run_validators_layout.addWidget(self.run_validators_checkbox)
         run_validators_layout.addStretch()
 
-        self.results_label = QtWidgets.QLabel("Open Results Pop-Up")
-        self.results_popup_checkbox = QtWidgets.QCheckBox()
+        self.results_popup_checkbox = QtWidgets.QCheckBox("Open Results Pop-Up")
         self.results_popup_checkbox.setChecked(True)
-        run_validators_layout.addWidget(self.results_label)
         run_validators_layout.addWidget(self.results_popup_checkbox)
         run_validators_layout.addStretch()
+
+        self.publish_label = QtWidgets.QLabel("Publish Passed Rigs Only")
+        self.publish_passed_checkbox = QtWidgets.QCheckBox("Publish Passed Rigs Only")
+        run_validators_layout.addWidget(self.publish_passed_checkbox)
+
+        if not builder.PYBLISH_READY:
+            self.run_validators_checkbox.setEnabled(False)
+            self.run_validators_checkbox.setChecked(False)
+            self.on_run_validators_checkbox_changed()
 
         # File Table UI
         self.table_widget = QtWidgets.QTableWidget()
@@ -86,8 +90,9 @@ class RigBuilderUI(MayaQWidgetDockableMixin, QtWidgets.QDialog, pyqt.SettingsMix
         self.layout.addWidget(self.build_button)
 
     def create_connections(self):
+        """Connects buttons to their functions."""
         self.output_folder_button.clicked.connect(self.on_output_folder_clicked)
-        self.run_validators_checkbox.stateChanged.connect(
+        self.run_validators_checkbox.toggled.connect(
             self.on_run_validators_checkbox_changed
         )
         self.add_button.clicked.connect(self.on_add_button_clicked)
@@ -95,6 +100,7 @@ class RigBuilderUI(MayaQWidgetDockableMixin, QtWidgets.QDialog, pyqt.SettingsMix
         self.build_button.clicked.connect(self.on_build_button_clicked)
 
     def on_output_folder_clicked(self):
+        """Sets the output folder for exported builds."""
         folder_path = QtWidgets.QFileDialog.getExistingDirectory(
             self, "Select Output Folder"
         )
@@ -102,11 +108,13 @@ class RigBuilderUI(MayaQWidgetDockableMixin, QtWidgets.QDialog, pyqt.SettingsMix
             self.output_folder_line_edit.setText(folder_path)
 
     def on_run_validators_checkbox_changed(self):
+        """Enables/disables options for Pyblish validators."""
         runState = self.run_validators_checkbox.isChecked()
-        self.results_label.setEnabled(runState)
         self.results_popup_checkbox.setEnabled(runState)
+        self.publish_passed_checkbox.setEnabled(runState)
 
     def on_add_button_clicked(self):
+        """Adds selected .sgt files from the list."""
         file_paths, _ = QtWidgets.QFileDialog.getOpenFileNames(
             self, "Select .sgt Files", "", "*.sgt"
         )
@@ -115,7 +123,7 @@ class RigBuilderUI(MayaQWidgetDockableMixin, QtWidgets.QDialog, pyqt.SettingsMix
                 self.add_file(file_path)
 
     def on_remove_button_clicked(self):
-        """Remove selected .sgt files from the list."""
+        """Removes selected .sgt files from the list."""
         selected_ranges = self.table_widget.selectedRanges()
 
         # Get unique rows to be removed
@@ -130,9 +138,13 @@ class RigBuilderUI(MayaQWidgetDockableMixin, QtWidgets.QDialog, pyqt.SettingsMix
             self.table_widget.removeRow(row)
 
     def on_build_button_clicked(self):
+        """Runs the rig build and validators, if specified."""
         data = self.collect_table_data()
         validate = self.run_validators_checkbox.isChecked()
-        results_dict = self.builder.execute_build_logic(data, validate=validate)
+        passed_rigs_only = self.publish_passed_checkbox.isChecked()
+        results_dict = self.builder.execute_build_logic(
+            data, validate=validate, passed_only=passed_rigs_only
+        )
         if (
             self.run_validators_checkbox.isChecked()
             and self.results_popup_checkbox.isChecked()
@@ -140,10 +152,10 @@ class RigBuilderUI(MayaQWidgetDockableMixin, QtWidgets.QDialog, pyqt.SettingsMix
             self.create_results_popup(results_dict)
 
     def collect_table_data(self):
-        """Collect data from the table widget and output as JSON.
+        """Collects data from the table widget and outputs it as JSON.
 
         Returns:
-            str: A JSON string containing the collected data.
+            str: A JSON string containing the collected data
         """
         data = {}
         row_count = self.table_widget.rowCount()
@@ -162,6 +174,11 @@ class RigBuilderUI(MayaQWidgetDockableMixin, QtWidgets.QDialog, pyqt.SettingsMix
         return json.dumps(data)
 
     def add_file(self, file_path):
+        """Adds a .sgt file to the main table.
+
+        Args:
+            file_path (str): Path of .sgt file
+        """
         row_position = self.table_widget.rowCount()
         self.table_widget.insertRow(row_position)
 
@@ -175,6 +192,11 @@ class RigBuilderUI(MayaQWidgetDockableMixin, QtWidgets.QDialog, pyqt.SettingsMix
         self.table_widget.setItem(row_position, 1, output_item)
 
     def create_results_popup(self, results_dict):
+        """Launches a pop-up containing validator results.
+
+        Args:
+            results_dict (dict): validator result data generated by RigBuilder
+        """
         popup = ResultsPopupDialog(results_dict)
         popup.exec()
 
@@ -192,6 +214,10 @@ class RigBuilderUI(MayaQWidgetDockableMixin, QtWidgets.QDialog, pyqt.SettingsMix
 
 
 class ResultsPopupDialog(QtWidgets.QDialog):
+    """
+    A custom pop-up to display Pyblish validator results.
+    """
+
     def __init__(self, results):
         super(ResultsPopupDialog, self).__init__()
         self.setWindowTitle("Validator Results")
@@ -205,8 +231,10 @@ class ResultsPopupDialog(QtWidgets.QDialog):
         self.create_results_view()
 
     def create_results_view(self):
+        """Creates the main tree layout."""
         self.results_tree = QtWidgets.QTreeView()
         self.results_tree.setAlternatingRowColors(True)
+        self.results_tree.setWordWrap(True)
         self.layout.addWidget(self.results_tree)
 
         model = QtGui.QStandardItemModel()
@@ -221,19 +249,24 @@ class ResultsPopupDialog(QtWidgets.QDialog):
             self.results_tree.setExpanded(idx, True)
 
     def add_result_entry(self, model, rig_name, checks_dict):
+        """Adds a collapsible entry of results for each rig."""
         group_root = QtGui.QStandardItem(rig_name)
         model.appendRow(group_root)
+        summary_string = "All checks passed!"
 
         for i, (check_name, check_data) in enumerate(checks_dict.items()):
             result_string = "Passed" if check_data.get("success") else "Failed"
             error = check_data.get("error")
             if error is not None:
                 result_string += " - {}".format(error)
-
+                summary_string = "Some checks failed, please review errors."
             check_item = QtGui.QStandardItem(check_name)
             result_item = QtGui.QStandardItem(result_string)
             group_root.setChild(i, 1, check_item)
             group_root.setChild(i, 2, result_item)
+
+        summary_item = QtGui.QStandardItem(summary_string)
+        model.setItem(group_root.row(), 2, summary_item)
 
 
 def openRigBuilderUI(*args):
